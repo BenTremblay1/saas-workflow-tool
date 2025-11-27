@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaaS Workflow Tool - Build $10k-30k MRR Apps</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Loading indicator */
+        #loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+        }
+        #error {
+            display: none;
+            padding: 20px;
+            background: #fee;
+            border: 1px solid #fcc;
+            margin: 20px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="loading">
+        <div class="text-gray-500">Loading application...</div>
+    </div>
+    <div id="error"></div>
+    <div id="root"></div>
+    <script>
+        // Error handling
+        window.addEventListener('error', function(e) {
+            console.error('Error:', e);
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error').innerHTML = '<strong>Error loading application:</strong><br>' + e.message + '<br><br>Check browser console for details.';
+        });
+        
+        // Check if React loaded
+        if (typeof React === 'undefined') {
+            document.getElementById('loading').innerHTML = '<div class="text-red-500">Error: React failed to load. Check your internet connection.</div>';
+        }
+    </script>
+    <script>
+        // Load and transpile the app.js file
+        fetch("{{ url_for('static', filename='js/app.js') }}")
+            .then(response => response.text())
+            .then(code => {
+                // Transpile with Babel
+                const transpiled = Babel.transform(code, {
+                    presets: ['react']
+                }).code;
+                
+                // Execute the transpiled code
+                eval(transpiled);
+                
+                // Hide loading indicator
+                setTimeout(function() {
+                    document.getElementById('loading').style.display = 'none';
+                }, 100);
+            })
+            .catch(error => {
+                console.error('Error loading app:', error);
+                document.getElementById('loading').innerHTML = 
+                    '<div class="text-red-500">Error loading application: ' + error.message + 
+                    '<br><br>Check browser console (F12) for details.</div>';
+            });
+    </script>
+</body>
+</html>
