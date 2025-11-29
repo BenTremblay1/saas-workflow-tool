@@ -1238,6 +1238,589 @@ function IdeaModal({ idea, onClose, onSave }) {
     );
 }
 
+// Landing Page Detail View Component
+function LandingPageDetailView({ step, project, onBack }) {
+    const [formData, setFormData] = useState({
+        final_headline_chosen: '',
+        headline_variations: '',
+        subheadline: '',
+        wedge_statement: '',
+        cta_button_text: '',
+        cta_button_text_custom: '',
+        price_shown: '',
+        landing_page_url: '',
+        visual_proof_url: '',
+        launched_status: 'Not started',
+        launch_note: ''
+    });
+    const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        // Load existing data
+        fetch(`/api/game-plan/${step.id}/data`)
+            .then(res => res.json())
+            .then(data => {
+                if (data) {
+                    const ctaText = data.cta_button_text || '';
+                    setFormData({
+                        final_headline_chosen: data.final_headline_chosen || '',
+                        headline_variations: data.headline_variations || '',
+                        subheadline: data.subheadline || '',
+                        wedge_statement: data.wedge_statement || '',
+                        cta_button_text: ctaText,
+                        cta_button_text_custom: !['Join the Waitlist (free)', 'Pre-order Lifetime Access – $49', 'Pre-order Lifetime Access – $79'].includes(ctaText) && ctaText ? ctaText : '',
+                        price_shown: data.price_shown || '',
+                        landing_page_url: data.landing_page_url || '',
+                        visual_proof_url: data.visual_proof_url || '',
+                        launched_status: data.launched_status || 'Not started',
+                        launch_note: data.launch_note || ''
+                    });
+                }
+            })
+            .catch(err => console.error('Error loading step data:', err));
+    }, [step.id]);
+
+    const handleSave = (showAlert = false, navigateBack = false) => {
+        setIsSaving(true);
+        fetch(`/api/game-plan/${step.id}/data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...formData,
+                price_shown: formData.price_shown ? parseFloat(formData.price_shown) : null
+            })
+        })
+        .then(res => {
+            if (!res.ok) {
+                return res.json().then(err => {
+                    throw new Error(err.message || 'Failed to save data');
+                });
+            }
+            return res.json();
+        })
+        .then(data => {
+            setIsSaving(false);
+            if (showAlert) {
+                if (navigateBack) {
+                    // Navigate back immediately after successful save
+                    onBack();
+                } else {
+                    alert('Saved! Status updated to: ' + data.status);
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Error saving:', err);
+            setIsSaving(false);
+            if (showAlert) {
+                alert('Error saving data: ' + (err.message || 'Unknown error'));
+            }
+        });
+    };
+
+    const handleFieldChange = (field, value) => {
+        setFormData({...formData, [field]: value});
+        // Auto-save after a delay (silently, no alert)
+        clearTimeout(window.autoSaveTimeout);
+        window.autoSaveTimeout = setTimeout(() => handleSave(false), 2000);
+    };
+
+    // Count only required fields (excluding launch_note and cta_button_text_custom)
+    const requiredFields = ['final_headline_chosen', 'headline_variations', 'subheadline', 'wedge_statement', 'cta_button_text', 'landing_page_url', 'visual_proof_url', 'launched_status'];
+    const filledCount = requiredFields.filter(field => {
+        const value = formData[field];
+        if (value === null || value === undefined) return false;
+        if (typeof value === 'string' && value.trim() === '') return false;
+        return true;
+    }).length;
+    const totalFields = 8; // launch_note is optional
+    const completionPercent = Math.round((filledCount / totalFields) * 100);
+
+    return (
+        <div>
+            <button onClick={onBack} className="mb-4 text-indigo-600 hover:text-indigo-700">
+                <i className="fas fa-arrow-left mr-2"></i>Back to Game Plan
+            </button>
+
+            <div className="bg-white shadow rounded-lg p-6 mb-6">
+                <div className="flex justify-between items-start mb-4">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900">{step.title}</h2>
+                        <p className="text-gray-600 mt-1">{step.description}</p>
+                    </div>
+                    <div className="text-right">
+                        <div className="text-sm text-gray-500 mb-1">Completion</div>
+                        <div className="text-2xl font-bold text-indigo-600">{completionPercent}%</div>
+                        <div className="w-32 bg-gray-200 rounded-full h-2 mt-2">
+                            <div 
+                                className="bg-indigo-600 h-2 rounded-full"
+                                style={{ width: `${completionPercent}%` }}
+                            ></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="space-y-6">
+                {/* Field 1: Final Headline Chosen */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        1. Final Headline Chosen
+                    </label>
+                    <input
+                        type="text"
+                        value={formData.final_headline_chosen}
+                        onChange={(e) => handleFieldChange('final_headline_chosen', e.target.value)}
+                        placeholder="The headline you actually shipped"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                </div>
+
+                {/* Field 2: Headline Variations */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        2. The Other 4 Headline Variations
+                    </label>
+                    <textarea
+                        value={formData.headline_variations}
+                        onChange={(e) => handleFieldChange('headline_variations', e.target.value)}
+                        rows="6"
+                        placeholder="Paste all 5 AI-generated headlines here. Mark the winner with a ✓"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Paste all 5 variations + mark which one won</p>
+                </div>
+
+                {/* Field 3: Sub-headline */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        3. Sub-headline / One-liner
+                    </label>
+                    <input
+                        type="text"
+                        value={formData.subheadline}
+                        onChange={(e) => handleFieldChange('subheadline', e.target.value)}
+                        placeholder="The dead-simple review-response tool that writes perfect replies in seconds"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                </div>
+
+                {/* Field 4: Wedge Statement */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        4. Wedge Statement Visible on Page
+                    </label>
+                    <input
+                        type="text"
+                        value={formData.wedge_statement}
+                        onChange={(e) => handleFieldChange('wedge_statement', e.target.value)}
+                        placeholder="Unlike X, Y, Z we fix [pain] by doing [10× solution]"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Copy-paste exact sentence from previous step</p>
+                </div>
+
+                {/* Field 5: CTA Button Text */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        5. CTA Button Text
+                    </label>
+                    <select
+                        value={formData.cta_button_text && ['Join the Waitlist (free)', 'Pre-order Lifetime Access – $49', 'Pre-order Lifetime Access – $79'].includes(formData.cta_button_text) ? formData.cta_button_text : (formData.cta_button_text ? 'Custom' : '')}
+                        onChange={(e) => {
+                            if (e.target.value === 'Custom') {
+                                handleFieldChange('cta_button_text', 'Custom');
+                            } else {
+                                handleFieldChange('cta_button_text', e.target.value);
+                            }
+                        }}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                        <option value="">Select CTA...</option>
+                        <option value="Join the Waitlist (free)">Join the Waitlist (free)</option>
+                        <option value="Pre-order Lifetime Access – $49">Pre-order Lifetime Access – $49 (recommended for Smoke Test)</option>
+                        <option value="Pre-order Lifetime Access – $79">Pre-order Lifetime Access – $79</option>
+                        <option value="Custom">Custom</option>
+                    </select>
+                    {(formData.cta_button_text === 'Custom' || (formData.cta_button_text && !['Join the Waitlist (free)', 'Pre-order Lifetime Access – $49', 'Pre-order Lifetime Access – $79'].includes(formData.cta_button_text))) && (
+                        <input
+                            type="text"
+                            value={formData.cta_button_text === 'Custom' ? formData.cta_button_text_custom : formData.cta_button_text}
+                            onChange={(e) => {
+                                setFormData({...formData, cta_button_text: e.target.value, cta_button_text_custom: e.target.value});
+                                clearTimeout(window.autoSaveTimeout);
+                                window.autoSaveTimeout = setTimeout(() => handleSave(false), 2000);
+                            }}
+                            placeholder="Enter custom CTA text"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-md mt-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                    )}
+                </div>
+
+                {/* Field 6: Price Shown */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        6. Price Shown (if pre-sale)
+                    </label>
+                    <div className="flex items-center">
+                        <span className="text-gray-500 mr-2">$</span>
+                        <input
+                            type="number"
+                            value={formData.price_shown}
+                            onChange={(e) => handleFieldChange('price_shown', e.target.value)}
+                            placeholder="49"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Leave blank if waitlist-only</p>
+                </div>
+
+                {/* Field 7: Landing Page URL */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        7. Landing Page URL
+                    </label>
+                    <input
+                        type="url"
+                        value={formData.landing_page_url}
+                        onChange={(e) => handleFieldChange('landing_page_url', e.target.value)}
+                        placeholder="https://replyrocket.framer.website or https://yourtool.carrd.co"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                </div>
+
+                {/* Field 8: Visual Proof */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        8. Quick Visual Proof
+                    </label>
+                    <input
+                        type="url"
+                        value={formData.visual_proof_url}
+                        onChange={(e) => handleFieldChange('visual_proof_url', e.target.value)}
+                        placeholder="Paste image URL or screenshot link"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 mb-2"
+                    />
+                    {formData.visual_proof_url && (
+                        <img 
+                            src={formData.visual_proof_url} 
+                            alt="Landing page preview" 
+                            className="mt-2 max-w-full h-auto rounded border border-gray-200"
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                            }}
+                        />
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">Screenshot or live embed URL</p>
+                </div>
+
+                {/* Field 9: Launched Status */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        9. Launched?
+                    </label>
+                    <div className="flex space-x-4 mb-4">
+                        {['Not started', 'Building', 'Live'].map(status => (
+                            <button
+                                key={status}
+                                onClick={() => handleFieldChange('launched_status', status)}
+                                className={`flex-1 py-3 rounded-lg font-medium transition-all ${
+                                    formData.launched_status === status
+                                        ? status === 'Live' 
+                                            ? 'bg-green-600 text-white shadow-lg'
+                                            : status === 'Building'
+                                                ? 'bg-blue-600 text-white shadow-lg'
+                                                : 'bg-gray-600 text-white shadow-lg'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                }`}
+                            >
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+                    <textarea
+                        value={formData.launch_note}
+                        onChange={(e) => handleFieldChange('launch_note', e.target.value)}
+                        rows="2"
+                        placeholder="Optional one-line note..."
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                </div>
+
+                {/* Save Button */}
+                <div className="flex justify-end space-x-4">
+                    <button
+                        onClick={onBack}
+                        className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={() => handleSave(true, true)}
+                        disabled={isSaving}
+                        className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                        {isSaving ? 'Saving...' : 'Save & Update Status'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Step Detail View Component (Deep Competitive Recon)
+function StepDetailView({ step, project, onBack }) {
+    const [formData, setFormData] = useState({
+        competitors_looked_at: '',
+        where_got_reviews: '',
+        pain_point_1: '',
+        pain_point_2: '',
+        pain_point_3: '',
+        my_wedge: '',
+        how_solve_10x_better: '',
+        confidence_check: null,
+        go_no_go: ''
+    });
+    const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        // Load existing data
+        fetch(`/api/game-plan/${step.id}/data`)
+            .then(res => res.json())
+            .then(data => {
+                if (data) {
+                    setFormData({
+                        competitors_looked_at: data.competitors_looked_at || '',
+                        where_got_reviews: data.where_got_reviews || '',
+                        pain_point_1: data.pain_point_1 || '',
+                        pain_point_2: data.pain_point_2 || '',
+                        pain_point_3: data.pain_point_3 || '',
+                        my_wedge: data.my_wedge || '',
+                        how_solve_10x_better: data.how_solve_10x_better || '',
+                        confidence_check: data.confidence_check || null,
+                        go_no_go: data.go_no_go || ''
+                    });
+                }
+            })
+            .catch(err => console.error('Error loading step data:', err));
+    }, [step.id]);
+
+    const handleSave = (showAlert = false, navigateBack = false) => {
+        setIsSaving(true);
+        fetch(`/api/game-plan/${step.id}/data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        })
+        .then(res => res.json())
+        .then(data => {
+            setIsSaving(false);
+            if (showAlert) {
+                // If navigating back, show brief message then navigate
+                if (navigateBack) {
+                    setTimeout(() => {
+                        onBack();
+                    }, 500);
+                } else {
+                    alert('Saved! Status updated to: ' + data.status);
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Error saving:', err);
+            setIsSaving(false);
+            if (showAlert) {
+                alert('Error saving data');
+            }
+        });
+    };
+
+    const handleFieldChange = (field, value) => {
+        setFormData({...formData, [field]: value});
+        // Auto-save after a delay (silently, no alert)
+        clearTimeout(window.autoSaveTimeout);
+        window.autoSaveTimeout = setTimeout(() => handleSave(false), 2000);
+    };
+
+    const filledCount = Object.values(formData).filter(v => v !== '' && v !== null).length;
+    const totalFields = 9;
+    const completionPercent = Math.round((filledCount / totalFields) * 100);
+
+    return (
+        <div>
+            <button onClick={onBack} className="mb-4 text-indigo-600 hover:text-indigo-700">
+                <i className="fas fa-arrow-left mr-2"></i>Back to Game Plan
+            </button>
+
+            <div className="bg-white shadow rounded-lg p-6 mb-6">
+                <div className="flex justify-between items-start mb-4">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900">{step.title}</h2>
+                        <p className="text-gray-600 mt-1">{step.description}</p>
+                    </div>
+                    <div className="text-right">
+                        <div className="text-sm text-gray-500 mb-1">Completion</div>
+                        <div className="text-2xl font-bold text-indigo-600">{completionPercent}%</div>
+                        <div className="w-32 bg-gray-200 rounded-full h-2 mt-2">
+                            <div 
+                                className="bg-indigo-600 h-2 rounded-full"
+                                style={{ width: `${completionPercent}%` }}
+                            ></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="space-y-6">
+                {/* Field 1: Competitors I Looked At */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        1. Competitors I Looked At
+                    </label>
+                    <input
+                        type="text"
+                        value={formData.competitors_looked_at}
+                        onChange={(e) => handleFieldChange('competitors_looked_at', e.target.value)}
+                        placeholder="Carrd, Tally, Typeform, Softr"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Comma-separated list</p>
+                </div>
+
+                {/* Field 2: Where I Got Reviews */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        2. Where I Got Reviews
+                    </label>
+                    <textarea
+                        value={formData.where_got_reviews}
+                        onChange={(e) => handleFieldChange('where_got_reviews', e.target.value)}
+                        rows="3"
+                        placeholder="App Store 1–2★ section, G2, Trustpilot, Reddit threads"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                </div>
+
+                {/* Field 3-5: Pain Points */}
+                {[1, 2, 3].map(num => (
+                    <div key={num} className="bg-white shadow rounded-lg p-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            {num + 2}. Pain Point #{num} – Most common or angriest
+                        </label>
+                        <textarea
+                            value={formData[`pain_point_${num}`]}
+                            onChange={(e) => handleFieldChange(`pain_point_${num}`, e.target.value)}
+                            rows="4"
+                            placeholder={`Pain point description + 1-2 example quotes`}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                    </div>
+                ))}
+
+                {/* Field 6: My Wedge */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        6. My Wedge
+                    </label>
+                    <select
+                        value={formData.my_wedge}
+                        onChange={(e) => handleFieldChange('my_wedge', e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                        <option value="">Select a pain point...</option>
+                        <option value="Pain #1">Pain #1</option>
+                        <option value="Pain #2">Pain #2</option>
+                        <option value="Pain #3">Pain #3</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Pick exactly one pain point to solve</p>
+                </div>
+
+                {/* Field 7: How I Will Solve It 10× Better */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                        7. How I Will Solve It 10× Better
+                    </label>
+                    <textarea
+                        value={formData.how_solve_10x_better}
+                        onChange={(e) => handleFieldChange('how_solve_10x_better', e.target.value)}
+                        rows="5"
+                        placeholder="One paragraph describing your solution..."
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">The single most important box</p>
+                </div>
+
+                {/* Field 8: Confidence Check + Go/No-Go */}
+                <div className="bg-white shadow rounded-lg p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-4">
+                        8. Quick Confidence Check
+                    </label>
+                    <div className="mb-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm text-gray-600">Confidence Level</span>
+                            <span className="text-lg font-bold text-indigo-600">
+                                {formData.confidence_check || 0}/10
+                            </span>
+                        </div>
+                        <input
+                            type="range"
+                            min="1"
+                            max="10"
+                            value={formData.confidence_check || 1}
+                            onChange={(e) => handleFieldChange('confidence_check', parseInt(e.target.value))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <div className="flex justify-between text-xs text-gray-400 mt-1">
+                            <span>Low</span>
+                            <span>High</span>
+                        </div>
+                    </div>
+
+                    <div className="flex space-x-4">
+                        <button
+                            onClick={() => handleFieldChange('go_no_go', 'go')}
+                            className={`flex-1 py-4 rounded-lg font-bold text-lg transition-all ${
+                                formData.go_no_go === 'go'
+                                    ? 'bg-green-600 text-white shadow-lg'
+                                    : 'bg-gray-100 text-gray-600 hover:bg-green-50'
+                            }`}
+                        >
+                            <i className="fas fa-check-circle mr-2"></i>GO
+                        </button>
+                        <button
+                            onClick={() => handleFieldChange('go_no_go', 'no-go')}
+                            className={`flex-1 py-4 rounded-lg font-bold text-lg transition-all ${
+                                formData.go_no_go === 'no-go'
+                                    ? 'bg-red-600 text-white shadow-lg'
+                                    : 'bg-gray-100 text-gray-600 hover:bg-red-50'
+                            }`}
+                        >
+                            <i className="fas fa-times-circle mr-2"></i>NO-GO
+                        </button>
+                    </div>
+                </div>
+
+                {/* Save Button */}
+                <div className="flex justify-end space-x-4">
+                    <button
+                        onClick={onBack}
+                        className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={() => handleSave(true, true)}
+                        disabled={isSaving}
+                        className="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                        {isSaving ? 'Saving...' : 'Save & Update Status'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // Projects Component
 function Projects({ initialProjectId, onClearSelection }) {
     const [projects, setProjects] = useState([]);
@@ -1256,6 +1839,18 @@ function Projects({ initialProjectId, onClearSelection }) {
             }
         }
     }, [initialProjectId, projects]);
+
+    // Refresh projects when window regains focus (user comes back to tab)
+    useEffect(() => {
+        const handleFocus = () => {
+            fetchProjects();
+        };
+        window.addEventListener('focus', handleFocus);
+        
+        return () => {
+            window.removeEventListener('focus', handleFocus);
+        };
+    }, []);
 
     const fetchProjects = () => {
         fetch('/api/projects')
@@ -1348,6 +1943,7 @@ function ProjectDetail({ project, onBack }) {
     const [tasks, setTasks] = useState([]);
     const [gamePlan, setGamePlan] = useState([]);
     const [activeTab, setActiveTab] = useState('overview');
+    const [selectedStep, setSelectedStep] = useState(null);
 
     useEffect(() => {
         fetch(`/api/projects/${project.id}/tasks`)
@@ -1570,7 +2166,47 @@ function ProjectDetail({ project, onBack }) {
             )}
 
             {/* Game Plan Tab - Lean AI-Solo Blueprint */}
-            {activeTab === 'gameplan' && (
+            {activeTab === 'gameplan' && selectedStep ? (
+                selectedStep.title.includes('Facade Landing Page') || selectedStep.title.includes('Build Facade') ? (
+                    <LandingPageDetailView 
+                        step={selectedStep} 
+                        project={project}
+                        onBack={() => {
+                            setSelectedStep(null);
+                            // Refresh game plan to get updated status
+                            fetch(`/api/projects/${project.id}/game-plan`)
+                                .then(res => res.json())
+                                .then(data => setGamePlan(data));
+                            // Refresh project data to get updated progress
+                            fetch(`/api/projects/${project.id}`)
+                                .then(res => res.json())
+                                .then(data => {
+                                    // Update the project object
+                                    Object.assign(project, data);
+                                });
+                        }}
+                    />
+                ) : (
+                    <StepDetailView 
+                        step={selectedStep} 
+                        project={project}
+                        onBack={() => {
+                            setSelectedStep(null);
+                            // Refresh game plan to get updated status
+                            fetch(`/api/projects/${project.id}/game-plan`)
+                                .then(res => res.json())
+                                .then(data => setGamePlan(data));
+                            // Refresh project data to get updated progress
+                            fetch(`/api/projects/${project.id}`)
+                                .then(res => res.json())
+                                .then(data => {
+                                    // Update the project object
+                                    Object.assign(project, data);
+                                });
+                        }}
+                    />
+                )
+            ) : activeTab === 'gameplan' && (
                 <div>
                     {gamePlan.length === 0 ? (
                         <div className="bg-white shadow rounded-lg p-8 text-center">
@@ -1631,6 +2267,17 @@ function ProjectDetail({ project, onBack }) {
                                                 return (
                                                     <div 
                                                         key={step.id} 
+                                                        onClick={() => {
+                                                            // Allow clicking non-gate steps that have detail views
+                                                            const hasDetailView = !isGate && (
+                                                                step.title.includes('Deep Competitive Recon') ||
+                                                                step.title.includes('Facade Landing Page') ||
+                                                                step.title.includes('Build Facade')
+                                                            );
+                                                            if (hasDetailView) {
+                                                                setSelectedStep(step);
+                                                            }
+                                                        }}
                                                         className={`bg-white shadow rounded-lg p-4 border-l-4 ${
                                                             isGate 
                                                                 ? 'border-red-500 bg-red-50' 
@@ -1639,6 +2286,10 @@ function ProjectDetail({ project, onBack }) {
                                                                     : step.status === 'in_progress'
                                                                         ? 'border-blue-500'
                                                                         : 'border-gray-200'
+                                                        } ${
+                                                            !isGate && (step.title.includes('Deep Competitive Recon') || step.title.includes('Facade Landing Page') || step.title.includes('Build Facade'))
+                                                                ? 'cursor-pointer hover:shadow-md transition-shadow' 
+                                                                : ''
                                                         }`}
                                                     >
                                                         <div className="flex items-start">
@@ -1657,9 +2308,16 @@ function ProjectDetail({ project, onBack }) {
                                                             </div>
                                                             <div className="flex-1 min-w-0">
                                                                 <div className="flex justify-between items-start gap-2">
-                                                                    <h4 className={`font-semibold ${isGate ? 'text-red-800' : 'text-gray-900'}`}>
-                                                                        {step.title}
-                                                                    </h4>
+                                                                    <div className="flex items-center">
+                                                                        <h4 className={`font-semibold ${isGate ? 'text-red-800' : 'text-gray-900'}`}>
+                                                                            {step.title}
+                                                                        </h4>
+                                                                        {!isGate && (step.title.includes('Deep Competitive Recon') || step.title.includes('Facade Landing Page') || step.title.includes('Build Facade')) && (
+                                                                            <span className="ml-2 px-2 py-0.5 text-xs bg-indigo-100 text-indigo-700 rounded">
+                                                                                <i className="fas fa-edit mr-1"></i>Click to fill out
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                                     <select
                                                                         value={step.status}
                                                                         onChange={(e) => {

@@ -101,6 +101,38 @@ class GamePlanStep(db.Model):
     
     project = db.relationship('Project', backref=db.backref('game_plan_steps', lazy=True, order_by='GamePlanStep.step_number'))
 
+class GamePlanStepData(db.Model):
+    """Stores detailed form data for each game plan step"""
+    id = db.Column(db.Integer, primary_key=True)
+    step_id = db.Column(db.Integer, db.ForeignKey('game_plan_step.id'), nullable=False, unique=True)
+    
+    # Deep Competitive Recon fields (Step 1)
+    competitors_looked_at = db.Column(db.Text)  # Comma-separated list
+    where_got_reviews = db.Column(db.Text)  # Text or links
+    pain_point_1 = db.Column(db.Text)  # Text + description + quotes
+    pain_point_2 = db.Column(db.Text)
+    pain_point_3 = db.Column(db.Text)
+    my_wedge = db.Column(db.String(50))  # Pain #1, Pain #2, or Pain #3
+    how_solve_10x_better = db.Column(db.Text)  # One paragraph
+    confidence_check = db.Column(db.Integer)  # 1-10 slider
+    go_no_go = db.Column(db.String(20))  # 'go' or 'no-go'
+    
+    # Build Facade Landing Page fields (Step 2)
+    final_headline_chosen = db.Column(db.String(500))  # The one actually shipped
+    headline_variations = db.Column(db.Text)  # All 5 AI-generated ones
+    subheadline = db.Column(db.String(500))  # One-liner under headline
+    wedge_statement = db.Column(db.Text)  # Exact sentence from previous step
+    cta_button_text = db.Column(db.String(100))  # Join Waitlist, Pre-order $49, etc.
+    price_shown = db.Column(db.Float)  # $49, $79, etc. (if pre-sale)
+    landing_page_url = db.Column(db.String(500))  # URL of the landing page
+    visual_proof_url = db.Column(db.String(500))  # Screenshot/image URL
+    launched_status = db.Column(db.String(50))  # Not started, Building, Live
+    launch_note = db.Column(db.Text)  # Optional one-line note
+    
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    step = db.relationship('GamePlanStep', backref=db.backref('step_data', uselist=False))
+
 # Initialize database
 with app.app_context():
     db.create_all()
@@ -276,6 +308,22 @@ def create_project():
     db.session.commit()
     return jsonify({'id': project.id, 'message': 'Project created successfully'}), 201
 
+@app.route('/api/projects/<int:id>', methods=['GET'])
+def get_project(id):
+    project = Project.query.get_or_404(id)
+    return jsonify({
+        'id': project.id,
+        'app_idea_id': project.app_idea_id,
+        'name': project.name,
+        'current_stage': project.current_stage,
+        'progress': project.progress,
+        'target_launch_date': project.target_launch_date.isoformat() if project.target_launch_date else None,
+        'actual_launch_date': project.actual_launch_date.isoformat() if project.actual_launch_date else None,
+        'current_mrr': project.current_mrr,
+        'target_mrr': project.target_mrr,
+        'created_at': project.created_at.isoformat() if project.created_at else None
+    })
+
 @app.route('/api/projects/<int:id>', methods=['PUT'])
 def update_project(id):
     project = Project.query.get_or_404(id)
@@ -407,6 +455,193 @@ def delete_game_plan_step(id):
     db.session.delete(step)
     db.session.commit()
     return jsonify({'message': 'Game plan step deleted successfully'})
+
+# Game Plan Step Data API
+@app.route('/api/game-plan/<int:step_id>/data', methods=['GET'])
+def get_step_data(step_id):
+    step = GamePlanStep.query.get_or_404(step_id)
+    step_data = GamePlanStepData.query.filter_by(step_id=step_id).first()
+    
+    if step_data:
+        return jsonify({
+            # Deep Competitive Recon fields
+            'competitors_looked_at': step_data.competitors_looked_at,
+            'where_got_reviews': step_data.where_got_reviews,
+            'pain_point_1': step_data.pain_point_1,
+            'pain_point_2': step_data.pain_point_2,
+            'pain_point_3': step_data.pain_point_3,
+            'my_wedge': step_data.my_wedge,
+            'how_solve_10x_better': step_data.how_solve_10x_better,
+            'confidence_check': step_data.confidence_check,
+            'go_no_go': step_data.go_no_go,
+            # Build Facade Landing Page fields
+            'final_headline_chosen': step_data.final_headline_chosen,
+            'headline_variations': step_data.headline_variations,
+            'subheadline': step_data.subheadline,
+            'wedge_statement': step_data.wedge_statement,
+            'cta_button_text': step_data.cta_button_text,
+            'price_shown': step_data.price_shown,
+            'landing_page_url': step_data.landing_page_url,
+            'visual_proof_url': step_data.visual_proof_url,
+            'launched_status': step_data.launched_status,
+            'launch_note': step_data.launch_note,
+            'updated_at': step_data.updated_at.isoformat() if step_data.updated_at else None
+        })
+    else:
+        return jsonify({})  # Return empty object if no data exists
+
+def calculate_project_progress(project_id):
+    """Calculate project progress based on completed game plan steps"""
+    all_steps = GamePlanStep.query.filter_by(project_id=project_id).order_by(GamePlanStep.step_number).all()
+    if not all_steps:
+        return 0
+    
+    # Each phase is 25% of total progress
+    # Phase 1: steps 1-4 (25%)
+    # Phase 2: steps 5-7 (25%)
+    # Phase 3: steps 8-11 (25%)
+    # Phase 4: steps 12-15 (25%)
+    
+    phase_weights = {
+        'phase1_smoketest': 25,  # Steps 1-4
+        'phase2_setup': 25,       # Steps 5-7
+        'phase3_build': 25,       # Steps 8-11
+        'phase4_launch': 25       # Steps 12-15
+    }
+    
+    # Group steps by phase
+    phase_steps = {}
+    for step in all_steps:
+        if step.category not in phase_steps:
+            phase_steps[step.category] = []
+        phase_steps[step.category].append(step)
+    
+    total_progress = 0
+    
+    # Calculate progress for each phase
+    for phase, weight in phase_weights.items():
+        if phase in phase_steps:
+            phase_step_list = phase_steps[phase]
+            completed_in_phase = sum(1 for s in phase_step_list if s.status == 'completed')
+            total_in_phase = len(phase_step_list)
+            
+            if total_in_phase > 0:
+                phase_progress = (completed_in_phase / total_in_phase) * weight
+                total_progress += phase_progress
+    
+    return min(int(total_progress), 100)  # Cap at 100%
+
+@app.route('/api/game-plan/<int:step_id>/data', methods=['POST', 'PUT'])
+def save_step_data(step_id):
+    try:
+        step = GamePlanStep.query.get_or_404(step_id)
+        data = request.json
+        
+        # Get or create step data
+        step_data = GamePlanStepData.query.filter_by(step_id=step_id).first()
+        if not step_data:
+            step_data = GamePlanStepData(step_id=step_id)
+            db.session.add(step_data)
+        
+        # Update all fields (both step types)
+        step_data.competitors_looked_at = data.get('competitors_looked_at', '') or None
+        step_data.where_got_reviews = data.get('where_got_reviews', '') or None
+        step_data.pain_point_1 = data.get('pain_point_1', '') or None
+        step_data.pain_point_2 = data.get('pain_point_2', '') or None
+        step_data.pain_point_3 = data.get('pain_point_3', '') or None
+        step_data.my_wedge = data.get('my_wedge', '') or None
+        step_data.how_solve_10x_better = data.get('how_solve_10x_better', '') or None
+        step_data.confidence_check = data.get('confidence_check')
+        step_data.go_no_go = data.get('go_no_go', '') or None
+        
+        # Landing page fields
+        step_data.final_headline_chosen = data.get('final_headline_chosen', '') or None
+        step_data.headline_variations = data.get('headline_variations', '') or None
+        step_data.subheadline = data.get('subheadline', '') or None
+        step_data.wedge_statement = data.get('wedge_statement', '') or None
+        step_data.cta_button_text = data.get('cta_button_text', '') or None
+        step_data.price_shown = data.get('price_shown')
+        step_data.landing_page_url = data.get('landing_page_url', '') or None
+        step_data.visual_proof_url = data.get('visual_proof_url', '') or None
+        step_data.launched_status = data.get('launched_status', '') or None
+        step_data.launch_note = data.get('launch_note', '') or None
+        
+        # Auto-update step status based on completion
+        # Determine which fields to check based on step title
+        if 'Deep Competitive Recon' in step.title:
+            # Deep Competitive Recon fields (9 total)
+            filled_fields = sum([
+                bool(step_data.competitors_looked_at),
+                bool(step_data.where_got_reviews),
+                bool(step_data.pain_point_1),
+                bool(step_data.pain_point_2),
+                bool(step_data.pain_point_3),
+                bool(step_data.my_wedge),
+                bool(step_data.how_solve_10x_better),
+                bool(step_data.confidence_check is not None),
+                bool(step_data.go_no_go)
+            ])
+            total_fields = 9
+        elif 'Facade Landing Page' in step.title or 'Build Facade' in step.title:
+            # Landing page fields (8 required, launch_note is optional)
+            filled_fields = sum([
+                bool(step_data.final_headline_chosen),
+                bool(step_data.headline_variations),
+                bool(step_data.subheadline),
+                bool(step_data.wedge_statement),
+                bool(step_data.cta_button_text),
+                bool(step_data.landing_page_url),
+                bool(step_data.visual_proof_url),
+                bool(step_data.launched_status)
+                # launch_note is optional, not counted
+            ])
+            total_fields = 8
+        else:
+            # Default: check all fields
+            filled_fields = sum([
+                bool(step_data.competitors_looked_at),
+                bool(step_data.where_got_reviews),
+                bool(step_data.pain_point_1),
+                bool(step_data.pain_point_2),
+                bool(step_data.pain_point_3),
+                bool(step_data.my_wedge),
+                bool(step_data.how_solve_10x_better),
+                bool(step_data.confidence_check is not None),
+                bool(step_data.go_no_go),
+                bool(step_data.final_headline_chosen),
+                bool(step_data.headline_variations),
+                bool(step_data.subheadline),
+                bool(step_data.wedge_statement),
+                bool(step_data.cta_button_text),
+                bool(step_data.landing_page_url),
+                bool(step_data.visual_proof_url),
+                bool(step_data.launched_status)
+            ])
+            total_fields = 17
+        
+        if filled_fields == 0:
+            step.status = 'pending'
+        elif filled_fields < total_fields:
+            step.status = 'in_progress'
+        else:
+            step.status = 'completed'
+            if not step.completed_at:
+                step.completed_at = datetime.utcnow()
+        
+        # Update project progress
+        project = Project.query.get(step.project_id)
+        if project:
+            project.progress = calculate_project_progress(project.id)
+        
+        db.session.commit()
+        return jsonify({
+            'message': 'Step data saved successfully', 
+            'status': step.status,
+            'project_progress': project.progress if project else 0
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e), 'message': 'Failed to save step data'}), 500
 
 @app.route('/api/projects/<int:project_id>/generate-game-plan', methods=['POST'])
 def generate_game_plan(project_id):
