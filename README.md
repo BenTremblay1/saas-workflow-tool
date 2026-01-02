@@ -76,7 +76,9 @@ This will add all new columns while preserving your existing data.
 python app.py
 ```
 
-The application will start on `http://localhost:5000`
+The application will start on `http://localhost:5001`
+
+**Note**: The app runs on port 5001 (not 5000) to avoid conflicts with macOS AirPlay Receiver.
 
 ## Usage Workflow
 
@@ -270,13 +272,68 @@ Modify the `default_steps` array in the `generate_game_plan` function in `app.py
 2. Update the API endpoints to handle new fields
 3. Update the React components to display/edit new fields
 
+## Data Backup & Verification
+
+### Your Data Location
+
+All your data is stored in a local SQLite database file:
+- **File**: `workflow.db` (in the project root directory)
+- **Location**: `/Users/bentremblay/Desktop/npi_expanded/workflow.db`
+
+### Verify Your Data
+
+To check what data you have saved, run:
+```bash
+python verify_data.py
+```
+
+This will show you:
+- All saved app ideas
+- All projects
+- Game plan steps and data
+- Total counts for each data type
+
+### Backup Your Data
+
+**Option 1: Manual Backup Script**
+Run the backup script to create a timestamped backup:
+```bash
+python backup_db.py
+```
+
+This creates a backup in the `backups/` directory with a timestamp, like:
+- `backups/workflow_backup_20260101_211450.db`
+
+**Option 2: Manual Copy**
+Simply copy the `workflow.db` file to a safe location:
+```bash
+cp workflow.db ~/Desktop/workflow_backup_$(date +%Y%m%d).db
+```
+
+**Option 3: Git Backup (Recommended)**
+Since your code is already on GitHub, you can also commit the database:
+```bash
+git add workflow.db
+git commit -m "Backup database"
+git push origin main
+```
+
+**Note**: For production, consider setting up automated daily backups.
+
+### Restore from Backup
+
+To restore from a backup:
+```bash
+cp backups/workflow_backup_YYYYMMDD_HHMMSS.db workflow.db
+```
+
 ## Production Considerations
 
 - Replace SQLite with PostgreSQL or MySQL for production
 - Add user authentication and multi-user support
 - Implement proper error handling and validation
 - Add data export/import functionality
-- Set up automated backups
+- Set up automated backups (see above)
 - Add email notifications for milestones
 - Implement analytics and reporting
 - Add image uploads for revenue proof screenshots
