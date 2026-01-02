@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import os
 
 app = Flask(__name__)
@@ -133,6 +133,50 @@ class GamePlanStepData(db.Model):
     
     step = db.relationship('GamePlanStep', backref=db.backref('step_data', uselist=False))
 
+class UserActivity(db.Model):
+    """Tracks user actions for metrics like consistency score and streaks"""
+    id = db.Column(db.Integer, primary_key=True)
+    action_type = db.Column(db.String(100), nullable=False)  # e.g., 'outreach', 'smoke_test', 'idea_created', 'project_created', 'step_completed'
+    action_date = db.Column(db.Date, nullable=False, default=date.today)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Additional context
+    project_id = db.Column(db.Integer, db.ForeignKey('project.id'), nullable=True)
+    idea_id = db.Column(db.Integer, db.ForeignKey('app_idea.id'), nullable=True)
+    notes = db.Column(db.Text)  # Optional notes about the action
+    
+    project = db.relationship('Project', backref=db.backref('activities', lazy=True))
+    idea = db.relationship('AppIdea', backref=db.backref('activities', lazy=True))
+    
+    # Unique constraint: one action per type per day
+    __table_args__ = (db.UniqueConstraint('action_type', 'action_date', name='unique_action_per_day'),)
+
+# Helper function to track user activity
+def track_activity(action_type, project_id=None, idea_id=None, notes=None):
+    """Track a user action for metrics calculation"""
+    try:
+        today = date.today()
+        # Check if this action already exists for today
+        existing = UserActivity.query.filter_by(
+            action_type=action_type,
+            action_date=today
+        ).first()
+        
+        if not existing:
+            activity = UserActivity(
+                action_type=action_type,
+                action_date=today,
+                project_id=project_id,
+                idea_id=idea_id,
+                notes=notes
+            )
+            db.session.add(activity)
+            db.session.commit()
+    except Exception as e:
+        # Silently fail if tracking fails (don't break main functionality)
+        print(f"Error tracking activity: {e}")
+        db.session.rollback()
+
 # Initialize database
 with app.app_context():
     db.create_all()
@@ -252,6 +296,10 @@ def create_app_idea():
         )
         db.session.add(idea)
         db.session.commit()
+        
+        # Track activity
+        track_activity('idea_created', idea_id=idea.id)
+        
         return jsonify({'id': idea.id, 'message': 'App idea created successfully'}), 201
     except Exception as e:
         db.session.rollback()
@@ -633,6 +681,12 @@ def save_step_data(step_id):
         if project:
             project.progress = calculate_project_progress(project.id)
         
+        # Track activity for smoke test / outreach actions
+        if 'Deep Competitive Recon' in step.title:
+            track_activity('outreach', project_id=project.id if project else None, notes='Deep Competitive Recon step')
+        elif 'Facade Landing Page' in step.title or 'Build Facade' in step.title:
+            track_activity('smoke_test', project_id=project.id if project else None, notes='Landing page step')
+        
         db.session.commit()
         return jsonify({
             'message': 'Step data saved successfully', 
@@ -761,6 +815,9 @@ def promote_idea_to_project(id):
     db.session.add(project)
     db.session.commit()
     
+    # Track activity - entering smoke test phase
+    track_activity('smoke_test', project_id=project.id, notes='Project promoted to Smoke Test phase')
+    
     return jsonify({
         'message': 'Idea promoted to project successfully',
         'project_id': project.id
@@ -829,12 +886,66 @@ def get_dashboard_stats():
     killed_projects = Project.query.filter_by(current_stage='killed').count()
     total_mrr = db.session.query(db.func.sum(Project.current_mrr)).scalar() or 0
     
+    # Calculate new metrics
+    today = date.today()
+    year_start = date(2026, 1, 1)
+    year_end = date(2026, 12, 31)
+    days_in_year = (year_end - year_start).days + 1
+    days_elapsed = (today - year_start).days + 1 if today >= year_start else 0
+    
+    # Consistency Score: Days Active / Days in Year (2026)
+    unique_active_days = db.session.query(
+        db.func.distinct(UserActivity.action_date)
+    ).filter(
+        UserActivity.action_date >= year_start,
+        UserActivity.action_date <= today
+    ).count()
+    
+    consistency_score = round((unique_active_days / days_in_year) * 100, 1) if days_in_year > 0 else 0
+    
+    # Current Streak: Consecutive days with at least one action
+    current_streak = 0
+    check_date = today
+    while True:
+        day_has_action = UserActivity.query.filter_by(action_date=check_date).first() is not None
+        if day_has_action:
+            current_streak += 1
+            check_date -= timedelta(days=1)
+        else:
+            break
+    
+    # Stage Velocity: Average days an idea stays in "Smoke Test" stage
+    smoketest_projects = Project.query.filter_by(current_stage='smoketest').all()
+    stage_velocity = 0
+    if smoketest_projects:
+        total_days_in_smoketest = 0
+        for proj in smoketest_projects:
+            # Find when project entered smoketest stage (approximate from created_at or updated_at)
+            # For now, use days since creation if still in smoketest
+            days_in_stage = (today - proj.created_at.date()).days if proj.created_at else 0
+            total_days_in_smoketest += days_in_stage
+        stage_velocity = round(total_days_in_smoketest / len(smoketest_projects), 1) if smoketest_projects else 0
+    
+    # Validation Activity: Number of "Outreach" or "Smoke Test" actions this week
+    week_start = today - timedelta(days=today.weekday())
+    validation_actions = UserActivity.query.filter(
+        UserActivity.action_type.in_(['outreach', 'smoke_test']),
+        UserActivity.action_date >= week_start,
+        UserActivity.action_date <= today
+    ).count()
+    
     return jsonify({
         'total_ideas': total_ideas,
         'active_projects': active_projects,
         'live_projects': live_projects,
         'killed_projects': killed_projects,
-        'total_mrr': round(total_mrr, 2)
+        'total_mrr': round(total_mrr, 2),
+        'consistency_score': consistency_score,
+        'days_active': unique_active_days,
+        'days_in_year': days_in_year,
+        'current_streak': current_streak,
+        'stage_velocity': stage_velocity,
+        'validation_activity': validation_actions
     })
 
 if __name__ == '__main__':

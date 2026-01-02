@@ -128,6 +128,81 @@ function Dashboard({ stats, onViewProject, onNavigate }) {
         <div>
             <h2 className="text-3xl font-bold text-gray-900 mb-6">Dashboard</h2>
             
+            {/* New Metrics Banner */}
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+                {/* Consistency Score */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                    <div className="p-5">
+                        <div className="flex items-center">
+                            <div className="flex-shrink-0">
+                                <i className="fas fa-chart-line text-3xl text-purple-500"></i>
+                            </div>
+                            <div className="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt className="text-sm font-medium text-gray-500 truncate">Consistency Score</dt>
+                                    <dd className="text-2xl font-semibold text-gray-900">{stats?.consistency_score || 0}%</dd>
+                                    <dd className="text-xs text-gray-400 mt-1">{stats?.days_active || 0} / {stats?.days_in_year || 365} days</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Current Streak */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                    <div className="p-5">
+                        <div className="flex items-center">
+                            <div className="flex-shrink-0">
+                                <i className="fas fa-fire text-3xl text-orange-500"></i>
+                            </div>
+                            <div className="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt className="text-sm font-medium text-gray-500 truncate">Current Streak</dt>
+                                    <dd className="text-2xl font-semibold text-gray-900">{stats?.current_streak || 0}</dd>
+                                    <dd className="text-xs text-gray-400 mt-1">consecutive days</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Stage Velocity */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                    <div className="p-5">
+                        <div className="flex items-center">
+                            <div className="flex-shrink-0">
+                                <i className="fas fa-tachometer-alt text-3xl text-teal-500"></i>
+                            </div>
+                            <div className="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt className="text-sm font-medium text-gray-500 truncate">Stage Velocity</dt>
+                                    <dd className="text-2xl font-semibold text-gray-900">{stats?.stage_velocity || 0}</dd>
+                                    <dd className="text-xs text-gray-400 mt-1">avg days in Smoke Test</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Validation Activity */}
+                <div className="bg-white overflow-hidden shadow rounded-lg">
+                    <div className="p-5">
+                        <div className="flex items-center">
+                            <div className="flex-shrink-0">
+                                <i className="fas fa-bullseye text-3xl text-pink-500"></i>
+                            </div>
+                            <div className="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt className="text-sm font-medium text-gray-500 truncate">Validation Activity</dt>
+                                    <dd className="text-2xl font-semibold text-gray-900">{stats?.validation_activity || 0}</dd>
+                                    <dd className="text-xs text-gray-400 mt-1">actions this week</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
             {/* Stats Grid */}
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
                 <div 
