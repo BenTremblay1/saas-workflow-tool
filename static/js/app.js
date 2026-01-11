@@ -1,13 +1,151 @@
 const { useState, useEffect } = React;
 
+// Supabase Client (will be initialized after config is loaded)
+let supabaseClient = null;
+
+// Auth Component
+function AuthComponent({ user, onSignIn, onSignOut, supabase }) {
+    if (!supabase) {
+        return (
+            <div className="px-4 py-2 text-sm text-gray-500">
+                <i className="fas fa-info-circle mr-2"></i>
+                Auth not configured
+            </div>
+        );
+    }
+
+    if (user) {
+        return (
+            <div className="flex items-center space-x-3">
+                <div className="text-sm text-gray-700">
+                    <i className="fas fa-user-circle mr-2"></i>
+                    {user.email || 'Signed in'}
+                </div>
+                <button
+                    onClick={onSignOut}
+                    className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition"
+                >
+                    Sign Out
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <button
+            onClick={onSignIn}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm font-medium transition flex items-center"
+        >
+            <i className="fab fa-google mr-2"></i>
+            Sign in with Google
+        </button>
+    );
+}
+
 // Main App Component
 function App() {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [dashboardStats, setDashboardStats] = useState(null);
     const [selectedProjectId, setSelectedProjectId] = useState(null);
+    const [user, setUser] = useState(null);
+    const [authConfig, setAuthConfig] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    // Initialize Supabase and check auth status
+    useEffect(() => {
+        // Get auth config from backend
+        fetch('/api/auth/config')
+            .then(res => res.json())
+            .then(config => {
+                setAuthConfig(config);
+                
+                if (config.enabled) {
+                    // Initialize Supabase client
+                    supabaseClient = window.supabase.createClient(config.supabase_url, config.supabase_key);
+                    
+                    // Check current session
+                    supabaseClient.auth.getSession().then(({ data: { session } }) => {
+                        if (session) {
+                            setUser(session.user);
+                        }
+                        setLoading(false);
+                    });
+                    
+                    // Listen for auth changes
+                    supabaseClient.auth.onAuthStateChange((event, session) => {
+                        if (session) {
+                            setUser(session.user);
+                        } else {
+                            setUser(null);
+                        }
+                    });
+                } else {
+                    setLoading(false);
+                }
+            })
+            .catch(err => {
+                console.error('Error loading auth config:', err);
+                setLoading(false);
+            });
+    }, []);
+
+    // Helper function to add auth headers to fetch requests
+    const fetchWithAuth = async (url, options = {}) => {
+        const headers = { ...options.headers, 'Content-Type': 'application/json' };
+        
+        if (supabaseClient && user) {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (session) {
+                headers['Authorization'] = `Bearer ${session.access_token}`;
+            }
+        }
+        
+        return fetch(url, { ...options, headers });
+    };
+    
+    // Make fetchWithAuth available globally for components
+    window.fetchWithAuth = fetchWithAuth;
+
+    const handleSignIn = async () => {
+        if (!supabaseClient) return;
+        
+        try {
+            const { data, error } = await supabaseClient.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo: window.location.origin
+                }
+            });
+            
+            if (error) {
+                console.error('Sign in error:', error);
+                alert('Sign in failed: ' + error.message);
+            }
+        } catch (error) {
+            console.error('Sign in error:', error);
+            alert('Sign in failed: ' + error.message);
+        }
+    };
+
+    const handleSignOut = async () => {
+        if (!supabaseClient) return;
+        
+        try {
+            const { error } = await supabaseClient.auth.signOut();
+            if (error) {
+                console.error('Sign out error:', error);
+            } else {
+                setUser(null);
+                // Reload page to clear any cached data
+                window.location.reload();
+            }
+        } catch (error) {
+            console.error('Sign out error:', error);
+        }
+    };
 
     const fetchStats = () => {
-        fetch('/api/dashboard/stats')
+        fetchWithAuth('/api/dashboard/stats')
             .then(res => res.json())
             .then(data => setDashboardStats(data))
             .catch(err => console.error('Error fetching stats:', err));
@@ -30,6 +168,17 @@ function App() {
         setActiveTab('projects');
     };
 
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600">Loading...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-gray-50">
             {/* Navigation */}
@@ -40,7 +189,7 @@ function App() {
                             <i className="fas fa-rocket text-indigo-600 text-2xl mr-3"></i>
                             <h1 className="text-xl font-bold text-gray-900">SaaS Workflow Tool</h1>
                         </div>
-                        <div className="flex space-x-4">
+                        <div className="flex items-center space-x-4">
                             <button
                                 onClick={() => setActiveTab('dashboard')}
                                 className={`px-4 py-2 rounded-md text-sm font-medium ${
@@ -71,6 +220,12 @@ function App() {
                             >
                                 <i className="fas fa-folder-open mr-2"></i>Projects
                             </button>
+                            <AuthComponent 
+                                user={user} 
+                                onSignIn={handleSignIn} 
+                                onSignOut={handleSignOut}
+                                supabase={supabaseClient}
+                            />
                         </div>
                     </div>
                 </div>
@@ -78,18 +233,21 @@ function App() {
 
             {/* Main Content */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                {activeTab === 'dashboard' && <Dashboard stats={dashboardStats} onViewProject={handleViewProject} onNavigate={setActiveTab} />}
-                {activeTab === 'discover' && <DiscoverIdeas />}
-                {activeTab === 'projects' && <Projects initialProjectId={selectedProjectId} onClearSelection={() => setSelectedProjectId(null)} />}
+                {activeTab === 'dashboard' && <Dashboard stats={dashboardStats} onViewProject={handleViewProject} onNavigate={setActiveTab} fetchWithAuth={fetchWithAuth} />}
+                {activeTab === 'discover' && <DiscoverIdeas fetchWithAuth={fetchWithAuth} />}
+                {activeTab === 'projects' && <Projects initialProjectId={selectedProjectId} onClearSelection={() => setSelectedProjectId(null)} fetchWithAuth={fetchWithAuth} />}
             </div>
         </div>
     );
 }
 
 // Dashboard Component
-function Dashboard({ stats, onViewProject, onNavigate }) {
+function Dashboard({ stats, onViewProject, onNavigate, fetchWithAuth }) {
     const [projects, setProjects] = useState([]);
     const [selectedStage, setSelectedStage] = useState(null);
+    
+    // Use fetchWithAuth if provided, otherwise use global or regular fetch
+    const authFetch = fetchWithAuth || window.fetchWithAuth || fetch;
     
     // Lean AI-Solo Blueprint Phases
     const stages = [
@@ -102,7 +260,7 @@ function Dashboard({ stats, onViewProject, onNavigate }) {
     ];
 
     useEffect(() => {
-        fetch('/api/projects')
+        authFetch('/api/projects')
             .then(res => res.json())
             .then(data => setProjects(data))
             .catch(err => console.error('Error fetching projects:', err));
@@ -384,24 +542,27 @@ function Dashboard({ stats, onViewProject, onNavigate }) {
 }
 
 // Idea Funnel Component
-function DiscoverIdeas() {
+function DiscoverIdeas({ fetchWithAuth }) {
     const [ideas, setIdeas] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [viewingIdea, setViewingIdea] = useState(null);
+    
+    // Use fetchWithAuth if provided, otherwise use global or regular fetch
+    const authFetch = fetchWithAuth || window.fetchWithAuth || fetch;
 
     useEffect(() => {
         fetchIdeas();
     }, []);
 
     const fetchIdeas = () => {
-        fetch('/api/app-ideas')
+        authFetch('/api/app-ideas')
             .then(res => res.json())
             .then(data => setIdeas(data))
             .catch(err => console.error('Error fetching ideas:', err));
     };
 
     const handleCreateIdea = (ideaData) => {
-        return fetch('/api/app-ideas', {
+        return authFetch('/api/app-ideas', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(ideaData)
@@ -1897,9 +2058,12 @@ function StepDetailView({ step, project, onBack }) {
 }
 
 // Projects Component
-function Projects({ initialProjectId, onClearSelection }) {
+function Projects({ initialProjectId, onClearSelection, fetchWithAuth }) {
     const [projects, setProjects] = useState([]);
     const [selectedProject, setSelectedProject] = useState(null);
+    
+    // Use fetchWithAuth if provided, otherwise use global or regular fetch
+    const authFetch = fetchWithAuth || window.fetchWithAuth || fetch;
 
     useEffect(() => {
         fetchProjects();
@@ -1928,7 +2092,7 @@ function Projects({ initialProjectId, onClearSelection }) {
     }, []);
 
     const fetchProjects = () => {
-        fetch('/api/projects')
+        authFetch('/api/projects')
             .then(res => res.json())
             .then(data => setProjects(data))
             .catch(err => console.error('Error fetching projects:', err));

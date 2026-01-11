@@ -1,3 +1,15 @@
+# Environment variables (contains secrets!)
+.env
+.env.local
+.env.*.local
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+instance/
+workflow.db
+
 # Python
 __pycache__/
 *.py[cod]
@@ -6,26 +18,26 @@ __pycache__/
 .Python
 venv/
 env/
-.env
-
-# Database
-*.db
-instance/
+ENV/
 
 # IDE
-.idea/
 .vscode/
+.idea/
 *.swp
 *.swo
-.DS_Store
+*~
 
-# Logs
-*.log
+# OS
+.DS_Store
+Thumbs.db
+
+# Excel files (if you don't want to track them)
+*.xlsx
+*.xls
+
+# Backups
+backups/*.db
 
 # Temporary files
 *.tmp
-*.bak
-
-# Excel lock files
-~$*.xlsx
-
+*.log

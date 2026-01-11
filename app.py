@@ -1,19 +1,96 @@
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, session
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, date, timedelta
 import os
+from functools import wraps
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("⚠️  python-dotenv not installed. Install with: pip install python-dotenv")
+except Exception as e:
+    print(f"⚠️  Could not load .env file: {e}")
+
+# Optional Supabase imports - app works without it
+try:
+    from supabase_config import get_supabase_client, get_supabase_admin_client
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    print("⚠️  Supabase not installed. Install with: pip install supabase")
+    def get_supabase_client():
+        raise ImportError("Supabase not installed")
+    def get_supabase_admin_client():
+        raise ImportError("Supabase not installed")
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///workflow.db'
+
+# Database configuration - use environment variable or default to SQLite
+# For Vercel, you'll need to use a cloud database (PostgreSQL, Supabase, etc.)
+database_url = os.environ.get('DATABASE_URL')
+if database_url:
+    # Handle PostgreSQL URL format (common on Vercel/Supabase)
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    # Validate that it's a proper database URL (not a web URL)
+    if database_url.startswith(('postgresql://', 'postgres://', 'sqlite://')):
+        app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    else:
+        print(f"⚠️  Invalid DATABASE_URL format!")
+        print(f"   Got: {database_url[:80]}...")
+        print("   Expected format: postgresql://postgres:password@db.xxxxx.supabase.co:5432/postgres")
+        print("   Falling back to SQLite...")
+        print("   To fix: Get the correct DATABASE_URL from Supabase: Settings > Database > Connection string > URI")
+        database_url = None
+
+if not database_url:
+    # Fallback to SQLite (works locally, but NOT on Vercel)
+    # On Vercel, use /tmp for temporary storage (data will be lost between invocations)
+    db_path = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'workflow.db') if os.environ.get('VERCEL') else 'workflow.db'
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-CORS(app)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+CORS(app, supports_credentials=True)
 
 db = SQLAlchemy(app)
+
+# Helper function to get current user from Supabase token
+def get_current_user():
+    """Extract user ID from Supabase JWT token in request headers"""
+    if not SUPABASE_AVAILABLE:
+        return None
+    
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    
+    token = auth_header.replace('Bearer ', '')
+    try:
+        supabase = get_supabase_client()
+        user = supabase.auth.get_user(token)
+        return user.user.id if user and user.user else None
+    except Exception as e:
+        print(f"Error getting user from token: {e}")
+        return None
+
+# Decorator to require authentication
+def require_auth(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user_id = get_current_user()
+        if not user_id:
+            return jsonify({'error': 'Authentication required'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Database Models
 class AppIdea(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(255), nullable=True)  # Supabase user UUID
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
     mrr_range = db.Column(db.String(50))  # e.g., "$10k-30k"
@@ -60,6 +137,7 @@ class AppIdea(db.Model):
 
 class Project(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(255), nullable=True)  # Supabase user UUID
     app_idea_id = db.Column(db.Integer, db.ForeignKey('app_idea.id'), nullable=False)
     name = db.Column(db.String(200), nullable=False)
     current_stage = db.Column(db.String(50), default='discovery')  # discovery, planning, building, testing, launching, live
@@ -177,9 +255,18 @@ def track_activity(action_type, project_id=None, idea_id=None, notes=None):
         print(f"Error tracking activity: {e}")
         db.session.rollback()
 
-# Initialize database
-with app.app_context():
-    db.create_all()
+# Initialize database (only if not already initialized)
+# This is safe to call multiple times in serverless environment
+def init_db():
+    with app.app_context():
+        try:
+            db.create_all()
+        except Exception as e:
+            # Log error but don't fail - database might already exist
+            print(f"Database initialization note: {e}")
+
+# Initialize on import (safe for serverless)
+init_db()
 
 # Routes
 @app.route('/')
@@ -190,6 +277,132 @@ def index():
 def test():
     return jsonify({'status': 'ok', 'message': 'Flask is working!'})
 
+# Supabase Authentication Endpoints
+@app.route('/api/auth/user', methods=['GET'])
+def get_current_user_info():
+    """Get current user information from Supabase token"""
+    if not SUPABASE_AVAILABLE:
+        return jsonify({'authenticated': False, 'error': 'Supabase not available'}), 401
+    
+    user_id = get_current_user()
+    if not user_id:
+        return jsonify({'authenticated': False}), 401
+    
+    try:
+        supabase = get_supabase_client()
+        auth_header = request.headers.get('Authorization', '')
+        token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else ''
+        
+        if token:
+            user = supabase.auth.get_user(token)
+            if user and user.user:
+                return jsonify({
+                    'authenticated': True,
+                    'user': {
+                        'id': user.user.id,
+                        'email': user.user.email,
+                        'user_metadata': user.user.user_metadata or {}
+                    }
+                })
+        
+        return jsonify({'authenticated': False}), 401
+    except Exception as e:
+        print(f"Error getting user info: {e}")
+        return jsonify({'authenticated': False, 'error': str(e)}), 401
+
+@app.route('/api/auth/config', methods=['GET'])
+def get_auth_config():
+    """Return Supabase configuration for frontend"""
+    supabase_url = os.environ.get('SUPABASE_URL')
+    supabase_key = os.environ.get('SUPABASE_KEY')
+    
+    if not supabase_url or not supabase_key:
+        return jsonify({
+            'enabled': False,
+            'message': 'Supabase not configured. Set SUPABASE_URL and SUPABASE_KEY environment variables.'
+        })
+    
+    return jsonify({
+        'enabled': True,
+        'supabase_url': supabase_url,
+        'supabase_key': supabase_key
+    })
+
+@app.route('/api/auth/migrate-data', methods=['POST'])
+def migrate_data_to_current_user():
+    """Migrate all legacy data (without user_id) to the currently authenticated user"""
+    if not SUPABASE_AVAILABLE:
+        return jsonify({'error': 'Supabase not available'}), 400
+    
+    user_id = get_current_user()
+    if not user_id:
+        return jsonify({'error': 'Authentication required. Please sign in first.'}), 401
+    
+    try:
+        with app.app_context():
+            migrated = {
+                'ideas': 0,
+                'projects': 0,
+                'tasks': 0,
+                'steps': 0,
+                'step_data': 0
+            }
+            
+            # Migrate App Ideas
+            ideas = AppIdea.query.filter(AppIdea.user_id.is_(None)).all()
+            for idea in ideas:
+                idea.user_id = user_id
+            migrated['ideas'] = len(ideas)
+            
+            # Migrate Projects
+            projects = Project.query.filter(Project.user_id.is_(None)).all()
+            for project in projects:
+                project.user_id = user_id
+            migrated['projects'] = len(projects)
+            
+            # Count related data
+            if projects:
+                project_ids = [p.id for p in projects]
+                migrated['tasks'] = Task.query.filter(Task.project_id.in_(project_ids)).count()
+                migrated['steps'] = GamePlanStep.query.filter(GamePlanStep.project_id.in_(project_ids)).count()
+                step_ids = [s.id for s in GamePlanStep.query.filter(GamePlanStep.project_id.in_(project_ids)).all()]
+                if step_ids:
+                    migrated['step_data'] = GamePlanStepData.query.filter(GamePlanStepData.step_id.in_(step_ids)).count()
+            
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Data migrated successfully',
+                'migrated': migrated,
+                'user_id': user_id
+            }), 200
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error migrating data: {error_details}")
+        return jsonify({'error': str(e), 'details': error_details}), 500
+
+# Temporary migration endpoint for Vercel deployment
+# Remove this after initial database setup
+@app.route('/migrate', methods=['POST', 'GET'])
+def migrate():
+    """Initialize database tables - run once after deployment"""
+    try:
+        with app.app_context():
+            db.create_all()
+            return jsonify({
+                'status': 'success',
+                'message': 'Database tables created successfully',
+                'tables': ['app_idea', 'project', 'task', 'game_plan_step', 'game_plan_step_data', 'user_activity']
+            })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 # App Ideas API
 @app.route('/api/app-ideas', methods=['GET'])
 def get_app_ideas():
@@ -197,7 +410,17 @@ def get_app_ideas():
     status = request.args.get('status', '')
     mrr_range = request.args.get('mrr_range', '')
     
+    # Get current user (optional - for backward compatibility)
+    user_id = get_current_user()
+    
     query = AppIdea.query
+    
+    # Filter by user if authenticated
+    if user_id:
+        query = query.filter(AppIdea.user_id == user_id)
+    else:
+        # If not authenticated, only show items without user_id (legacy data)
+        query = query.filter(AppIdea.user_id.is_(None))
     
     if search:
         query = query.filter(
@@ -262,7 +485,11 @@ def create_app_idea():
         def clean_value(value):
             return value if value and str(value).strip() else None
         
+        # Get current user ID
+        user_id = get_current_user()
+        
         idea = AppIdea(
+            user_id=user_id,
             name=data.get('name'),
             description=clean_value(data.get('description')),
             mrr_range=data.get('mrr_range', '$10k-30k'),
@@ -303,7 +530,10 @@ def create_app_idea():
         return jsonify({'id': idea.id, 'message': 'App idea created successfully'}), 201
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error creating app idea: {error_details}")
+        return jsonify({'error': str(e), 'details': error_details}), 500
 
 @app.route('/api/app-ideas/<int:id>', methods=['PUT'])
 def update_app_idea(id):
@@ -328,7 +558,19 @@ def delete_app_idea(id):
 # Projects API
 @app.route('/api/projects', methods=['GET'])
 def get_projects():
-    projects = Project.query.order_by(Project.created_at.desc()).all()
+    # Get current user (optional - for backward compatibility)
+    user_id = get_current_user()
+    
+    query = Project.query
+    
+    # Filter by user if authenticated
+    if user_id:
+        query = query.filter(Project.user_id == user_id)
+    else:
+        # If not authenticated, only show items without user_id (legacy data)
+        query = query.filter(Project.user_id.is_(None))
+    
+    projects = query.order_by(Project.created_at.desc()).all()
     return jsonify([{
         'id': project.id,
         'app_idea_id': project.app_idea_id,
@@ -345,7 +587,11 @@ def get_projects():
 @app.route('/api/projects', methods=['POST'])
 def create_project():
     data = request.json
+    # Get current user ID
+    user_id = get_current_user()
+    
     project = Project(
+        user_id=user_id,
         app_idea_id=data.get('app_idea_id'),
         name=data.get('name'),
         current_stage=data.get('current_stage', 'discovery'),
