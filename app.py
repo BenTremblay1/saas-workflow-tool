@@ -35,6 +35,9 @@ if database_url:
     # Handle PostgreSQL URL format (common on Vercel/Supabase)
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    # Remove query parameters (like ?pgbouncer=true) that psycopg2 doesn't understand
+    if '?' in database_url:
+        database_url = database_url.split('?')[0]
     # Validate that it's a proper database URL (not a web URL)
     if database_url.startswith(('postgresql://', 'postgres://', 'sqlite://')):
         app.config['SQLALCHEMY_DATABASE_URI'] = database_url
@@ -276,6 +279,34 @@ def index():
 @app.route('/test')
 def test():
     return jsonify({'status': 'ok', 'message': 'Flask is working!'})
+
+@app.route('/api/database/status', methods=['GET'])
+def get_database_status():
+    """Check database connection status"""
+    database_url = os.environ.get('DATABASE_URL', '')
+    db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    
+    is_supabase = db_uri.startswith('postgresql://') and 'supabase' in db_uri
+    is_sqlite = db_uri.startswith('sqlite://')
+    
+    # Try to test connection
+    connection_ok = False
+    error_msg = None
+    try:
+        with app.app_context():
+            db.session.execute(db.text('SELECT 1'))
+            connection_ok = True
+    except Exception as e:
+        error_msg = str(e)
+        connection_ok = False
+    
+    return jsonify({
+        'database_type': 'Supabase (PostgreSQL)' if is_supabase else 'SQLite' if is_sqlite else 'Unknown',
+        'connection_ok': connection_ok,
+        'error': error_msg,
+        'database_url_set': bool(database_url),
+        'using_supabase': is_supabase
+    })
 
 # Supabase Authentication Endpoints
 @app.route('/api/auth/user', methods=['GET'])
@@ -532,8 +563,18 @@ def create_app_idea():
         db.session.rollback()
         import traceback
         error_details = traceback.format_exc()
+        error_msg = str(e)
+        
+        # Check if it's a database connection error
+        if 'could not translate host name' in error_msg or 'OperationalError' in error_msg:
+            return jsonify({
+                'error': 'Database connection failed',
+                'message': 'Cannot connect to Supabase database. Check your DATABASE_URL in .env file and ensure your internet connection is working.',
+                'hint': 'The app will fall back to SQLite if Supabase is unreachable. Check server logs for details.'
+            }), 500
+        
         print(f"Error creating app idea: {error_details}")
-        return jsonify({'error': str(e), 'details': error_details}), 500
+        return jsonify({'error': 'Failed to save idea', 'message': error_msg}), 500
 
 @app.route('/api/app-ideas/<int:id>', methods=['PUT'])
 def update_app_idea(id):
