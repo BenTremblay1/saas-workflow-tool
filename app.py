@@ -269,7 +269,12 @@ def init_db():
             print(f"Database initialization note: {e}")
 
 # Initialize on import (safe for serverless)
-init_db()
+# Skip on Vercel - tables will be created via /migrate endpoint
+if not os.environ.get('VERCEL'):
+    try:
+        init_db()
+    except Exception as e:
+        print(f"Database initialization skipped: {e}")
 
 # Routes
 @app.route('/')
