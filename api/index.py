@@ -12,5 +12,6 @@ if parent_dir not in sys.path:
 # Import the Flask app
 from app import app
 
-# Vercel Python runtime expects the app to be exposed as handler
+# Vercel Python runtime expects the Flask app instance directly
+# Flask apps are WSGI applications and work as handlers
 handler = app
