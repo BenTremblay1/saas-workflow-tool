@@ -285,6 +285,20 @@ def index():
 def test():
     return jsonify({'status': 'ok', 'message': 'Flask is working!'})
 
+@app.route('/api/test-env')
+def test_env():
+    """Test endpoint to check environment variables"""
+    import os
+    return jsonify({
+        'has_supabase_url': bool(os.environ.get('SUPABASE_URL')),
+        'has_supabase_key': bool(os.environ.get('SUPABASE_KEY')),
+        'has_service_key': bool(os.environ.get('SUPABASE_SERVICE_KEY')),
+        'has_database_url': bool(os.environ.get('DATABASE_URL')),
+        'has_secret_key': bool(os.environ.get('SECRET_KEY')),
+        'vercel_env': os.environ.get('VERCEL'),
+        'python_version': os.sys.version if hasattr(os, 'sys') else 'unknown'
+    })
+
 @app.route('/api/database/status', methods=['GET'])
 def get_database_status():
     """Check database connection status"""
