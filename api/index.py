@@ -12,6 +12,17 @@ if parent_dir not in sys.path:
 # Import the Flask app
 from app import app
 
-# Vercel Python runtime - Flask app is WSGI-compatible
-# Expose directly as handler
-handler = app
+# Vercel Python runtime expects a function handler
+# Flask apps are WSGI-compatible, but Vercel's detection fails with direct assignment
+# Solution: Wrap in a function that Vercel can properly recognize
+def handler(request):
+    """
+    Vercel serverless function handler
+    
+    Vercel passes a request object with:
+    - request.environ: WSGI environment dictionary
+    - request.start_response: WSGI start_response callable
+    
+    We delegate to Flask's WSGI interface.
+    """
+    return app(request.environ, request.start_response)
