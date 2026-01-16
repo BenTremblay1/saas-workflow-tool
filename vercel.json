@@ -1,5 +1,4 @@
 {
-  "version": 2,
   "routes": [
     {
       "src": "/static/(.*)",
@@ -10,11 +9,6 @@
       "dest": "/api/index.py"
     }
   ],
-  "functions": {
-    "api/index.py": {
-      "runtime": "python3.12"
-    }
-  },
   "env": {
     "PYTHONUNBUFFERED": "1"
   }
